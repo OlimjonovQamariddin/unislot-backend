@@ -1,78 +1,74 @@
 import express from 'express';
 import multer from 'multer';
-import Anthropic from '@anthropic-ai/sdk';
-import dotenv from 'dotenv';
 import cors from 'cors';
-
-dotenv.config();
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const app = express();
-const port = process.env.PORT || 3000;
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Anthropic SDK
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Multer (rasmlarni xotirada saqlash uchun)
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// Google Gemini ob'ektini yaratamiz
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Healthcheck endpoint
 app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'Unislot API is running'
-  });
+  res.json({ status: 'ok', message: 'Unislot API is running' });
 });
 
-// Dars jadvali rasmini JSON ga o'giruvchi API endpoint
 app.post('/api/parse-schedule', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'Rasm yuklanmadi' });
+      return res.status(400).json({ error: 'Rasm fayli yuklanmadi' });
     }
 
-    const base64Image = req.file.buffer.toString('base64');
-    const mediaType = req.file.mimetype;
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2000,
-      messages: [
+    const prompt = `Ushbu dars jadvali rasmidan barcha ma'lumotlarni o'qib ol va ularni faqat va faqat quyidagi toza JSON formatida qaytar. Ortiqcha yozuv yoki markdown yozma:
+    {
+      "days": [
         {
-          role: 'user',
-          content: [
+          "day": "Hafta kuni",
+          "lessons": [
             {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: base64Image,
-              },
-            },
-            {
-              type: 'text',
-              text: 'Ushbu universitet dars jadvali rasmini tahlil qiling va uni aniq JSON formatiga o\'giring. Strukturasi: {"days": [{"day": "Dushanba", "lessons": [{"subject": "", "time": "", "room": "", "teacher": ""}]}]}. Faqat toza JSON qaytaring.',
-            },
-          ],
-        },
-      ],
-    });
+              "subject": "Fan nomi",
+              "time": "Vaqti",
+              "room": "Xona/Xona raqami",
+              "teacher": "O'qituvchi"
+            }
+          ]
+        }
+      ]
+    }`;
 
-    const resultText = response.content[0].text;
-    res.json({ success: true, data: resultText });
+    const imagePart = {
+      inlineData: {
+        data: req.file.buffer.toString('base64'),
+        mimeType: req.file.mimetype,
+      },
+    };
+
+    const result = await model.generateContent([prompt, imagePart]);
+    const responseText = result.response.text();
+
+    // Olingan javobdan toza JSON hosil qilish
+    const cleanJsonText = responseText.replace(/```json|```/g, '').trim();
+    const parsedData = JSON.parse(cleanJsonText);
+
+    res.json({
+      success: true,
+      data: parsedData,
+    });
   } catch (error) {
     console.error('Xatolik:', error);
-    res.status(500).json({ error: 'Rasm qayta ishlanmadi', details: error.message });
+    res.status(500).json({
+      error: 'Rasm qayta ishlanmadi',
+      details: error.message,
+    });
   }
 });
 
-// Serverni ishga tushirish (0.0.0.0 Render uchun shart)
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server ${port}-portda ishlamoqda`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
