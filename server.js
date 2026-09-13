@@ -21,7 +21,8 @@ app.post('/api/parse-schedule', upload.single('image'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Rasm fayli yuklanmadi' });
     }
- const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
     const prompt = `Ushbu dars jadvali rasmidan barcha ma'lumotlarni o'qib ol va ularni faqat va faqat quyidagi toza JSON formatida qaytar. Ortiqcha yozuv yoki markdown yozma:
     {
